@@ -91,6 +91,11 @@ app.UseCors("MezanCorsPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Serve React Frontend (SPA)
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapControllers();
+app.MapFallbackToFile("index.html");
 
 app.Run();
