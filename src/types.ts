@@ -5,7 +5,9 @@ export interface Lawyer {
   name: string;
   email: string;
   phone: string;
-  password: string;
+  password?: string;
+  firmName?: string;
+  licenseNo?: string;
   createdAt: number;
 }
 

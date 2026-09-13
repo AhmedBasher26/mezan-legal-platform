@@ -143,8 +143,8 @@ interface State {
   setSidebar: (open: boolean) => void;
   toggleMini: () => void;
 
-  login: (identifier: string, password: string) => string | null;
-  register: (d: { name: string; email: string; phone: string; password: string }, withDemo: boolean) => string | null;
+  login: (identifier: string, password: string) => Promise<string | null>;
+  register: (d: { name: string; email: string; phone: string; password: string }, withDemo: boolean) => Promise<string | null>;
   logout: () => void;
 
   addClient: (d: Omit<Client, "id" | "lawyerId" | "createdAt" | "importantDates">) => void;
@@ -215,59 +215,81 @@ export const useStore = create<State>()(
         setSidebar: (open) => set({ sidebarOpen: open }),
         toggleMini: () => set((s) => ({ sidebarMini: !s.sidebarMini })),
 
-        login: (identifier, password) => {
-          const idn = identifier.trim().toLowerCase();
-          const u = get().lawyers.find(
-            (l) => l.email.toLowerCase() === idn || l.name.trim() === identifier.trim(),
-          );
-          if (!u || u.password !== password) return "بيانات الدخول غير صحيحة، تأكد من البريد الإلكتروني وكلمة المرور.";
-          set({ sessionUserId: u.id, nav: { page: "dashboard", intent: null } });
-          set((s) => ({
-            activities: [{ id: uid(), lawyerId: u.id, kind: "auth", text: "تم تسجيل الدخول", at: Date.now() }, ...s.activities],
-          }));
-          toast("success", `مرحباً بعودتك، ${u.name.split(" ").slice(0, 2).join(" ")}`);
+        login: async (identifier, password) => {
+          try {
+            // 1. First authenticate with .NET backend API
+            const res = await api.auth.login(identifier, password);
+            if (res && res.user) {
+              const u: Lawyer = {
+                id: res.user.id,
+                name: res.user.name,
+                email: res.user.email,
+                phone: res.user.phone,
+                password,
+                firmName: res.user.firmName,
+                licenseNo: res.user.licenseNo,
+                createdAt: res.user.createdAt ? new Date(res.user.createdAt).getTime() : Date.now(),
+              };
 
-          // Background sync with .NET backend API
-          api.auth.login(identifier, password)
-            .then(() => get().syncWithBackend())
-            .catch(() => {});
+              set((s) => ({
+                lawyers: [u, ...s.lawyers.filter((l) => l.id !== u.id && l.email.toLowerCase() !== u.email.toLowerCase())],
+                sessionUserId: u.id,
+                nav: { page: "dashboard", intent: null },
+                activities: [{ id: uid(), lawyerId: u.id, kind: "auth", text: "تم تسجيل الدخول", at: Date.now() }, ...s.activities],
+              }));
 
-          return null;
+              toast("success", `مرحباً بعودتك، ${u.name.split(" ").slice(0, 2).join(" ")}`);
+              await get().syncWithBackend();
+              return null;
+            }
+          } catch (err: any) {
+            // If offline or network error, fallback to local search
+            const idn = identifier.trim().toLowerCase();
+            const u = get().lawyers.find(
+              (l) => l.email.toLowerCase() === idn || l.name.trim() === identifier.trim(),
+            );
+            if (u && u.password === password) {
+              set({ sessionUserId: u.id, nav: { page: "dashboard", intent: null } });
+              toast("success", `مرحباً بعودتك، ${u.name.split(" ").slice(0, 2).join(" ")}`);
+              return null;
+            }
+            return err.message || "بيانات الدخول غير صحيحة، تأكد من البريد الإلكتروني وكلمة المرور.";
+          }
+
+          return "بيانات الدخول غير صحيحة، تأكد من البريد الإلكتروني وكلمة المرور.";
         },
 
-        register: (d, withDemo) => {
-          const email = d.email.trim().toLowerCase();
-          if (get().lawyers.some((l) => l.email.toLowerCase() === email))
-            return "هذا البريد الإلكتروني مسجل مسبقاً، جرّب تسجيل الدخول.";
-          const lawyer: Lawyer = { id: uid(), name: d.name.trim(), email, phone: d.phone.trim(), password: d.password, createdAt: Date.now() };
-          if (withDemo) {
-            const seed = buildSeed();
-            const remap = (arr: { lawyerId: ID }[]) => arr.map((x) => ({ ...x, lawyerId: lawyer.id }));
-            set((s) => ({
-              lawyers: [...s.lawyers, lawyer],
-              sessionUserId: lawyer.id,
-              clients: [...remap(seed.clients) as Client[], ...s.clients],
-              cases: [...remap(seed.cases) as Case[], ...s.cases],
-              hearings: [...remap(seed.hearings) as Hearing[], ...s.hearings],
-              tasks: [...remap(seed.tasks) as Task[], ...s.tasks],
-              templates: [...remap(seed.templates) as Template[], ...s.templates],
-              caseFiles: [...remap(seed.caseFiles) as CaseFile[], ...s.caseFiles],
-              txs: [...remap(seed.txs) as Tx[], ...s.txs],
-              notes: [...remap(seed.notes) as CaseNote[], ...s.notes],
-              activities: [...remap(seed.activities) as Activity[], ...s.activities],
-              nav: { page: "dashboard", intent: null },
-            }));
-          } else {
-            set((s) => ({ lawyers: [...s.lawyers, lawyer], sessionUserId: lawyer.id, nav: { page: "dashboard", intent: null } }));
+        register: async (d, withDemo) => {
+          try {
+            // 1. Register with .NET backend API
+            const res = await api.auth.register(d, withDemo);
+            if (res && res.user) {
+              const lawyer: Lawyer = {
+                id: res.user.id,
+                name: res.user.name,
+                email: res.user.email,
+                phone: res.user.phone,
+                password: d.password,
+                firmName: res.user.firmName,
+                licenseNo: res.user.licenseNo,
+                createdAt: Date.now(),
+              };
+
+              set((s) => ({
+                lawyers: [lawyer, ...s.lawyers.filter((l) => l.id !== lawyer.id)],
+                sessionUserId: lawyer.id,
+                nav: { page: "dashboard", intent: null },
+              }));
+
+              toast("success", `تم إنشاء حسابك بنجاح. أهلاً بك في ميزان، ${lawyer.name}!`);
+              await get().syncWithBackend();
+              return null;
+            }
+          } catch (err: any) {
+            return err.message || "حدث خطأ أثناء إنشاء الحساب، يرجى المحاولة مرة أخرى.";
           }
-          toast("success", `تم إنشاء حسابك بنجاح. أهلاً بك في ميزان، ${lawyer.name}!`);
 
-          // Background register on .NET backend API
-          api.auth.register(d, withDemo)
-            .then(() => get().syncWithBackend())
-            .catch(() => {});
-
-          return null;
+          return "حدث خطأ أثناء إنشاء الحساب، يرجى المحاولة مرة أخرى.";
         },
 
         logout: () => {
