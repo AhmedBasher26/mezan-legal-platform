@@ -1,0 +1,6 @@
+@Mezan.WebApi_HostAddress = http://localhost:5172
+
+GET {{Mezan.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

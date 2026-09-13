@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mezan.Application/Mezan.Application.csproj" />
+    <Project Path="src/Mezan.Domain/Mezan.Domain.csproj" />
+    <Project Path="src/Mezan.Infrastructure/Mezan.Infrastructure.csproj" />
+    <Project Path="src/Mezan.WebApi/Mezan.WebApi.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Mezan.UnitTests/Mezan.UnitTests.csproj" />
+  </Folder>
+</Solution>
